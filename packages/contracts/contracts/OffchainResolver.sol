@@ -4,6 +4,7 @@ pragma solidity ^0.8.4;
 import "@ensdomains/ens-contracts/contracts/resolvers/SupportsInterface.sol";
 import "./IExtendedResolver.sol";
 import "./SignatureVerifier.sol";
+import {Ownable2Step} from "@openzeppelin/contracts/access/Ownable2Step.sol";
 
 interface IResolverService {
     function resolve(bytes calldata name, bytes calldata data) external view returns(bytes memory result, uint64 expires, bytes memory sig);
@@ -13,20 +14,95 @@ interface IResolverService {
  * Implements an ENS resolver that directs all queries to a CCIP read gateway.
  * Callers must implement EIP 3668 and ENSIP 10.
  */
-contract OffchainResolver is IExtendedResolver, SupportsInterface {
-    string public url;
-    mapping(address=>bool) public signers;
+contract OffchainResolver is IExtendedResolver, SupportsInterface, Ownable2Step {
+    // ================ Mutable Ownership Configuration ==================
 
+    /**
+        * The address of the contract's relayer.
+        * Relayer has the permission to relay certain actions to this contract (i.e., set MerkleRoot)
+        */
+    address private _relayer;
+
+    // ================================ Events ==============================
+
+    event RelayerUpdated(address newRelayer);
+    event GatewayUrlUpdated(string newUrl);
     event NewSigners(address[] signers);
+    event SignersUpdated(address[] signers);
+
     error OffchainLookup(address sender, string[] urls, bytes callData, bytes4 callbackFunction, bytes extraData);
 
-    constructor(string memory _url, address[] memory _signers) {
-        url = _url;
-        for(uint i = 0; i < _signers.length; i++) {
-            signers[_signers[i]] = true;
-        }
-        emit NewSigners(_signers);
+
+
+    // ============================ Variables ==============================
+
+    string public url;
+    mapping(address => bool) public signers;
+
+    // ============================== Modifiers ==============================
+
+    /**
+     * @dev Modifier to check whether the `msg.sender` is the relayer.
+     */
+    modifier onlyRelayer() {
+        require(msg.sender == relayer(), "Unauthorized: caller is not the relayer");
+        _;
     }
+
+    // ============================== Constructor ============================
+
+    constructor(string memory _url, address[] memory _initialSigners) {
+        url = _url;
+        for(uint i = 0; i < _initialSigners.length; i++) {
+            signers[_initialSigners[i]] = true;
+        }
+        emit NewSigners(_initialSigners);
+    }
+
+    // ======================== Configuration Management ======================
+
+    /**
+     * Allows the owner to set a relayer address.
+     */
+    function setRelayer(address newRelayer) external onlyOwner {
+        _relayer = newRelayer;
+        emit RelayerUpdated(newRelayer);
+    }
+
+    /**
+     * Allows the relayer to set/update the gateway URL.
+     */
+    function setGatewayUrl(string calldata newUrl) external onlyRelayer {
+        url = newUrl;
+        emit GatewayUrlUpdated(newUrl);
+    }
+
+    // Function to add new signers, can only be called by the relayer
+    function addSigners(address[] memory newSigners) external onlyRelayer {
+        for(uint i = 0; i < newSigners.length; i++) {
+            signers[newSigners[i]] = true;
+        }
+        emit SignersUpdated(newSigners);
+    }
+
+       // Function to remove signers, can only be called by the relayer
+    function removeSigners(address[] memory signersToRemove) external onlyRelayer {
+        for(uint i = 0; i < signersToRemove.length; i++) {
+            signers[signersToRemove[i]] = false;
+        }
+        emit SignersUpdated(signersToRemove);
+    }
+
+    // ================================ Getters ==============================
+
+    /**
+     * @dev Returns the address of the current relayer.
+     */
+    function relayer() public view returns (address) {
+        return _relayer == address(0) ? owner() : _relayer;
+    }
+
+    // ================================ Functions =============================
 
     function makeSignatureHash(address target, uint64 expires, bytes memory request, bytes memory result) external pure returns(bytes32) {
         return SignatureVerifier.makeSignatureHash(target, expires, request, result);
@@ -58,7 +134,7 @@ contract OffchainResolver is IExtendedResolver, SupportsInterface {
         (address signer, bytes memory result) = SignatureVerifier.verify(extraData, response);
         require(
             signers[signer],
-            "SignatureVerifier: Invalid sigature");
+            "SignatureVerifier: Invalid signature");
         return result;
     }
 
