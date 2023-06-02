@@ -7,20 +7,30 @@ import "./SignatureVerifier.sol";
 import {Ownable2Step} from "@openzeppelin/contracts/access/Ownable2Step.sol";
 
 interface IResolverService {
-    function resolve(bytes calldata name, bytes calldata data) external view returns(bytes memory result, uint64 expires, bytes memory sig);
+    function resolve(
+        bytes calldata name,
+        bytes calldata data
+    )
+        external
+        view
+        returns (bytes memory result, uint64 expires, bytes memory sig);
 }
 
 /**
  * Implements an ENS resolver that directs all queries to a CCIP read gateway.
  * Callers must implement EIP 3668 and ENSIP 10.
  */
-contract OffchainResolver is IExtendedResolver, SupportsInterface, Ownable2Step {
+contract OffchainResolver is
+    IExtendedResolver,
+    SupportsInterface,
+    Ownable2Step
+{
     // ================ Mutable Ownership Configuration ==================
 
     /**
-        * The address of the contract's relayer.
-        * Relayer has the permission to relay certain actions to this contract (i.e., set MerkleRoot)
-        */
+     * The address of the contract's relayer.
+     * Relayer has the permission to relay certain actions to this contract (i.e., set Signer and GatewayUrl)
+     */
     address private _relayer;
 
     // ================================ Events ==============================
@@ -30,9 +40,13 @@ contract OffchainResolver is IExtendedResolver, SupportsInterface, Ownable2Step 
     event NewSigners(address[] signers);
     event SignersUpdated(address[] signers);
 
-    error OffchainLookup(address sender, string[] urls, bytes callData, bytes4 callbackFunction, bytes extraData);
-
-
+    error OffchainLookup(
+        address sender,
+        string[] urls,
+        bytes callData,
+        bytes4 callbackFunction,
+        bytes extraData
+    );
 
     // ============================ Variables ==============================
 
@@ -45,7 +59,10 @@ contract OffchainResolver is IExtendedResolver, SupportsInterface, Ownable2Step 
      * @dev Modifier to check whether the `msg.sender` is the relayer.
      */
     modifier onlyRelayer() {
-        require(msg.sender == relayer(), "Unauthorized: caller is not the relayer");
+        require(
+            msg.sender == relayer(),
+            "Unauthorized: caller is not the relayer"
+        );
         _;
     }
 
@@ -53,7 +70,7 @@ contract OffchainResolver is IExtendedResolver, SupportsInterface, Ownable2Step 
 
     constructor(string memory _url, address[] memory _initialSigners) {
         url = _url;
-        for(uint i = 0; i < _initialSigners.length; i++) {
+        for (uint i = 0; i < _initialSigners.length; i++) {
             signers[_initialSigners[i]] = true;
         }
         emit NewSigners(_initialSigners);
@@ -79,15 +96,17 @@ contract OffchainResolver is IExtendedResolver, SupportsInterface, Ownable2Step 
 
     // Function to add new signers, can only be called by the relayer
     function addSigners(address[] memory newSigners) external onlyRelayer {
-        for(uint i = 0; i < newSigners.length; i++) {
+        for (uint i = 0; i < newSigners.length; i++) {
             signers[newSigners[i]] = true;
         }
         emit SignersUpdated(newSigners);
     }
 
-       // Function to remove signers, can only be called by the relayer
-    function removeSigners(address[] memory signersToRemove) external onlyRelayer {
-        for(uint i = 0; i < signersToRemove.length; i++) {
+    // Function to remove signers, can only be called by the relayer
+    function removeSigners(
+        address[] memory signersToRemove
+    ) external onlyRelayer {
+        for (uint i = 0; i < signersToRemove.length; i++) {
             signers[signersToRemove[i]] = false;
         }
         emit SignersUpdated(signersToRemove);
@@ -104,8 +123,19 @@ contract OffchainResolver is IExtendedResolver, SupportsInterface, Ownable2Step 
 
     // ================================ Functions =============================
 
-    function makeSignatureHash(address target, uint64 expires, bytes memory request, bytes memory result) external pure returns(bytes32) {
-        return SignatureVerifier.makeSignatureHash(target, expires, request, result);
+    function makeSignatureHash(
+        address target,
+        uint64 expires,
+        bytes memory request,
+        bytes memory result
+    ) external pure returns (bytes32) {
+        return
+            SignatureVerifier.makeSignatureHash(
+                target,
+                expires,
+                request,
+                result
+            );
     }
 
     /**
@@ -114,8 +144,15 @@ contract OffchainResolver is IExtendedResolver, SupportsInterface, Ownable2Step 
      * @param data The ABI encoded data for the underlying resolution function (Eg, addr(bytes32), text(bytes32,string), etc).
      * @return The return data, ABI encoded identically to the underlying function.
      */
-    function resolve(bytes calldata name, bytes calldata data) external override view returns(bytes memory) {
-        bytes memory callData = abi.encodeWithSelector(IResolverService.resolve.selector, name, data);
+    function resolve(
+        bytes calldata name,
+        bytes calldata data
+    ) external view override returns (bytes memory) {
+        bytes memory callData = abi.encodeWithSelector(
+            IResolverService.resolve.selector,
+            name,
+            data
+        );
         string[] memory urls = new string[](1);
         urls[0] = url;
         revert OffchainLookup(
@@ -130,15 +167,23 @@ contract OffchainResolver is IExtendedResolver, SupportsInterface, Ownable2Step 
     /**
      * Callback used by CCIP read compatible clients to verify and parse the response.
      */
-    function resolveWithProof(bytes calldata response, bytes calldata extraData) external view returns(bytes memory) {
-        (address signer, bytes memory result) = SignatureVerifier.verify(extraData, response);
-        require(
-            signers[signer],
-            "SignatureVerifier: Invalid signature");
+    function resolveWithProof(
+        bytes calldata response,
+        bytes calldata extraData
+    ) external view returns (bytes memory) {
+        (address signer, bytes memory result) = SignatureVerifier.verify(
+            extraData,
+            response
+        );
+        require(signers[signer], "SignatureVerifier: Invalid signature");
         return result;
     }
 
-    function supportsInterface(bytes4 interfaceID) public pure override returns(bool) {
-        return interfaceID == type(IExtendedResolver).interfaceId || super.supportsInterface(interfaceID);
+    function supportsInterface(
+        bytes4 interfaceID
+    ) public pure override returns (bool) {
+        return
+            interfaceID == type(IExtendedResolver).interfaceId ||
+            super.supportsInterface(interfaceID);
     }
 }
